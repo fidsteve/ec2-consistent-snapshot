@@ -125,6 +125,7 @@ my $mysql_dbh = undef;
 if ( $mysql_stop ) {
   $mysql_stopped = mysql_stop();
 } elsif ( $mysql ) {
+  $Debug and warn ("Establish DB connection");
   $mysql_dbh = mysql_connect($mysql_host, $mysql_socket, $mysql_username, $mysql_password);
   mysql_lock($mysql_dbh);
 }
@@ -300,6 +301,10 @@ sub mysql_lock {
 
   my ($mysql_logfile, $mysql_position,
       $mysql_binlog_do_db, $mysql_binlog_ignore_db);
+
+  my ($slave_mysql_logfile, $slave_mysql_position,
+      $slave_mysql_binlog_do_db, $slave_mysql_binlog_ignore_db);
+
   if ( not $Noaction ) {
     # This might be a slave database already
     my $slave_status = $mysql_dbh->selectrow_hashref(q{ SHOW SLAVE STATUS });
@@ -310,18 +315,30 @@ sub mysql_lock {
     $mysql_binlog_do_db      = $slave_status->{Replicate_Do_DB};
     $mysql_binlog_ignore_db  = $slave_status->{Replicate_Ignore_DB};
 
+    $Debug and warn "$Prog: ", scalar localtime,
+      ": slave status $slave_status\n";
+
+    $slave_mysql_logfile           = $mysql_logfile;
+    $slave_mysql_position          = $mysql_position;
+    $slave_mysql_binlog_do_db      = $mysql_binlog_do_db;
+    $slave_mysql_binlog_ignore_db  = $mysql_binlog_ignore_db;
+
+  print STDERR "$Prog: (from slave) \n master_log_file=\"$mysql_logfile\",",
+              " master_log_pos=$mysql_position\n"
+    if $Debug or  ($mysql_logfile and not $Quiet);
+
     # or this might be the master
     ($mysql_logfile, $mysql_position,
      $mysql_binlog_do_db, $mysql_binlog_ignore_db) =
-      $mysql_dbh->selectrow_array(q{  SHOW MASTER STATUS  })
-      unless $mysql_logfile;
+      $mysql_dbh->selectrow_array(q{  SHOW MASTER STATUS  });
+#      unless $mysql_logfile;
   }
 
   $mysql_dbh->do(q{ SET SQL_LOG_BIN=1 }) unless $Noaction;
 
-  print "$Prog: master_log_file=\"$mysql_logfile\",",
+  print STDERR "$Prog: master_log_file=\"$mysql_logfile\",",
               " master_log_pos=$mysql_position\n"
-    if $mysql_logfile and not $Quiet;
+    if $Debug or  ($mysql_logfile and not $Quiet);
 
   if ( defined($mysql_master_status_file) && $mysql_logfile ) {
     $Debug and warn "$Prog: ", scalar localtime,
@@ -334,6 +351,11 @@ master_log_file="$mysql_logfile"
 master_log_pos="$mysql_position"
 master_binlog_do_db="$mysql_binlog_do_db"
 master_binlog_ignore_db="$mysql_binlog_ignore_db"
+
+slave_log_file="$slave_mysql_logfile"
+slave_log_pos="$slave_mysql_position"
+slave_binlog_do_db="$slave_mysql_binlog_do_db"
+slave_binlog_ignore_db="$slave_mysql_binlog_ignore_db"
 EOM
       close(MYSQLMASTERSTATUS);
     }
